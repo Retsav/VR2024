@@ -2,11 +2,14 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using Random = UnityEngine.Random;
+using Unity.Mathematics;
+using Random = Unity.Mathematics.Random;
 
 
 public class TerrainGenerator : MonoBehaviour
 {
+    [SerializeField] private uint seedValue;
+    
     [SerializeField] private bool regenerateOnUpdate = true;
     
     [SerializeField] private Vector2 terrainSize;
@@ -22,13 +25,16 @@ public class TerrainGenerator : MonoBehaviour
     [SerializeField] private GameObject roadTrackPrefab;
     
     
+    
     private GameObject _roadTrack;
     private List<Matrix4x4> matrixList = new List<Matrix4x4>();
 
 
-    private List<Vector3> occupiedPositions = new List<Vector3>();
+    private RoadLinkedList _roadLinkedList = new RoadLinkedList();
     private const float pathHeight = 1f;
     [SerializeField] private Transform roadsParent;
+    
+    private Random random;
 
     private float XmaxBounds;
     private float XminBounds;
@@ -38,6 +44,8 @@ public class TerrainGenerator : MonoBehaviour
 
     private void Start()
     {
+        random = new Random();
+        random.InitState(seedValue);
         GenerateTerrain();
         GenerateTrack();
     }
@@ -46,6 +54,7 @@ public class TerrainGenerator : MonoBehaviour
     {
         if (regenerateOnUpdate)
         {
+            random.InitState(seedValue);
             GenerateTerrain();
             GenerateTrack();
         }
@@ -74,7 +83,7 @@ public class TerrainGenerator : MonoBehaviour
 
     private void GenerateTrack()
     {
-        occupiedPositions.Clear();
+        _roadLinkedList.Clear();
         foreach (Transform child in roadsParent) Destroy(child.gameObject);
         var debugTryNumber = 0;
         var point = Vector3.zero;
@@ -82,8 +91,8 @@ public class TerrainGenerator : MonoBehaviour
         while (true)
         {
             if (debugTryNumber > 500) break;
-            int randomX = (int)Random.Range((terrainSize.x / 2) - 1, -terrainSize.x / 2);
-            int randomY = (int)Random.Range((terrainSize.y / 2) - 1, -terrainSize.y / 2);
+            int randomX = (int)random.NextFloat((terrainSize.x / 2) - 1, -terrainSize.x / 2);
+            int randomY = (int)random.NextFloat((terrainSize.y / 2) - 1, -terrainSize.y / 2);
             point = new Vector3(randomX + segmentSize.x / 2, pathHeight, randomY + segmentSize.y / 2);
             if (point.x < XmaxBounds - segmentStartingPointBorderMax &&
                 point.x > XminBounds + segmentStartingPointBorderMax)
@@ -101,37 +110,66 @@ public class TerrainGenerator : MonoBehaviour
         if (_roadTrack != null)
             Destroy(_roadTrack);
         _roadTrack = Instantiate(roadTrackPrefab, point, Quaternion.Euler(0, rotationAngle, 0), roadsParent);
-        occupiedPositions.Add(point);
+        _roadLinkedList.AddNode(point, RoadType.Straight);
         var nextObject = _roadTrack;
         for (int i = 0; i < pathLength; i++)
         {
-            var positionsAvailable = ScanForAvailableSegment(nextObject.transform.position);
+            var positionsWithoutObjects = ScanForAvailableSegment(nextObject.transform.position);
             int index = -1;
-            if (positionsAvailable.Count > 0)
+            if (positionsWithoutObjects.Count > 0)
             {
-                index = Random.Range(0, positionsAvailable.Count);
+                var roadRecentTrack = _roadLinkedList.GetTail();
+                var bannedPositions = new List<(Vector3, TurnType)>();
+                foreach (var position in positionsWithoutObjects)
+                {
+                    //If last added track was a turn, it cannot make another turn so we ban these available positions even if they are free.
+                    if(roadRecentTrack.RoadType == RoadType.Straight) continue;
+                    if (position.Item2 == TurnType.Left || position.Item2 == TurnType.Right) bannedPositions.Add(position);
+                }
+
+                for (int j = 0; j < bannedPositions.Count; j++) positionsWithoutObjects.Remove(bannedPositions[j]);
+                
+                index = random.NextInt(0, positionsWithoutObjects.Count);
             }
-            nextObject = Instantiate(roadTrackPrefab, index == -1 ? Vector3.zero : positionsAvailable[index], Quaternion.Euler(0, rotationAngle, 0), roadsParent);
-            occupiedPositions.Add(nextObject.transform.position);
+
+            var pos = index == -1 ? Vector3.zero : positionsWithoutObjects[index].Item1;
+            nextObject = Instantiate(roadTrackPrefab, pos, Quaternion.Euler(0, rotationAngle, 0), roadsParent);
+            _roadLinkedList.AddNode(nextObject.transform.position, RoadType.Straight);
         }
     }
 
-    private List<Vector3> ScanForAvailableSegment(Vector3 startSegment)
+    private List<(Vector3, TurnType)> ScanForAvailableSegment(Vector3 startSegment)
     {
-        List<Vector3> availablePositions = new List<Vector3>();
+        List<(Vector3, TurnType)> availablePositions = new List<(Vector3, TurnType)>();
         var forwardSegment = new Vector3(startSegment.x + segmentSize.x, pathHeight, startSegment.z);
         var backwardSegment = new Vector3(startSegment.x - segmentSize.x, pathHeight, startSegment.z);
-        var leftSegment = new Vector3(startSegment.x, pathHeight, startSegment.z - segmentSize.y);
-        var rightSegment = new Vector3(startSegment.x, pathHeight, startSegment.z + segmentSize.y);
+        var rightSegment = new Vector3(startSegment.x, pathHeight, startSegment.z - segmentSize.y);
+        var leftSegment = new Vector3(startSegment.x, pathHeight, startSegment.z + segmentSize.y);
         if (forwardSegment.x < XmaxBounds)
-            if(!occupiedPositions.Contains(forwardSegment)) availablePositions.Add(forwardSegment);
+            if(!_roadLinkedList.ContainsPosition(forwardSegment)) availablePositions.Add((forwardSegment, TurnType.Up));
         if (backwardSegment.x > XminBounds)
-            if(!occupiedPositions.Contains(backwardSegment)) availablePositions.Add(backwardSegment);
-        if (leftSegment.z < ZminBounds)
-            if (!occupiedPositions.Contains(leftSegment)) availablePositions.Add(leftSegment);
-        if (rightSegment.z > ZmaxBounds)
-            if (!occupiedPositions.Contains(rightSegment)) availablePositions.Add(rightSegment);
+            if(!_roadLinkedList.ContainsPosition(backwardSegment)) availablePositions.Add((backwardSegment, TurnType.Down));
+        if (rightSegment.z > ZminBounds)
+            if (!_roadLinkedList.ContainsPosition(rightSegment)) availablePositions.Add((rightSegment, TurnType.Right));
+        if (leftSegment.z < ZmaxBounds)
+            if (!_roadLinkedList.ContainsPosition(leftSegment)) availablePositions.Add((leftSegment, TurnType.Left));
         return availablePositions;
     }
     
+    
+}
+
+public enum RoadType
+{
+    Straight,
+    TurnRight,
+    TurnLeft
+}
+
+public enum TurnType
+{
+    Up,
+    Down,
+    Left,
+    Right
 }
