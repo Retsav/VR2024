@@ -22,7 +22,17 @@ public class TerrainGenerator : MonoBehaviour
     [Header("Golf Path Options")] 
     [SerializeField] private int pathLength = 10;
     [SerializeField] private float segmentStartingPointBorderMax;
+    [SerializeField] private int maxTurnsInARow = 2;
+    private int _turnsCount;
+    
+    
+    
+    [Header("Prefabs")]
     [SerializeField] private GameObject roadTrackPrefab;
+    [SerializeField] private GameObject turnLeftPrefab;
+    [SerializeField] private GameObject turnRightPrefab;
+    
+    
     
     
     
@@ -41,6 +51,8 @@ public class TerrainGenerator : MonoBehaviour
     
     private float ZmaxBounds;
     private float ZminBounds;
+    private RoadType _randomRoadType;
+    private GameObject _nextObject;
 
     private void Start()
     {
@@ -75,89 +87,250 @@ public class TerrainGenerator : MonoBehaviour
         }
         Graphics.DrawMeshInstanced(mesh, 0, grassmaterial, matrixList.ToArray(), matrixList.Count);
         Graphics.DrawMeshInstanced(mesh, 1, dirtmaterial, matrixList.ToArray(), matrixList.Count);
-        XmaxBounds = terrainSize.x / 2 + segmentSize.x / 2;
+        XmaxBounds = terrainSize.x / 2 + segmentSize.x / 2 - 1;
         XminBounds = -terrainSize.x / 2 + segmentSize.x / 2;
-        ZmaxBounds = terrainSize.y / 2 + segmentSize.y / 2;
+        ZmaxBounds = terrainSize.y / 2 + segmentSize.y / 2 - 1;
         ZminBounds = -terrainSize.y / 2 + segmentSize.y / 2;
     }
-
+    
     private void GenerateTrack()
     {
         _roadLinkedList.Clear();
         foreach (Transform child in roadsParent) Destroy(child.gameObject);
+        
         var debugTryNumber = 0;
         var point = Vector3.zero;
-        float rotationAngle = 90f;
+        float rotationAngle = 0f;
+        
+
         while (true)
         {
             if (debugTryNumber > 500) break;
             int randomX = (int)random.NextFloat((terrainSize.x / 2) - 1, -terrainSize.x / 2);
             int randomY = (int)random.NextFloat((terrainSize.y / 2) - 1, -terrainSize.y / 2);
             point = new Vector3(randomX + segmentSize.x / 2, pathHeight, randomY + segmentSize.y / 2);
+            
             if (point.x < XmaxBounds - segmentStartingPointBorderMax &&
-                point.x > XminBounds + segmentStartingPointBorderMax)
+                point.x > XminBounds + segmentStartingPointBorderMax &&
+                point.z < ZmaxBounds - segmentStartingPointBorderMax &&
+                point.z > ZminBounds + segmentStartingPointBorderMax)
             {
-                if (point.z < ZmaxBounds - segmentStartingPointBorderMax &&
-                    point.z > ZminBounds + segmentStartingPointBorderMax)
-                {
-                    debugTryNumber++;
-                    continue;
-                }
+                debugTryNumber++;
+                continue;
             }
             break;
         }
 
         if (_roadTrack != null)
             Destroy(_roadTrack);
-        _roadTrack = Instantiate(roadTrackPrefab, point, Quaternion.Euler(0, rotationAngle, 0), roadsParent);
-        _roadLinkedList.AddNode(point, RoadType.Straight);
-        var nextObject = _roadTrack;
+        
+        var rotation = Quaternion.Euler(0, rotationAngle, 0);
+        _roadTrack = Instantiate(roadTrackPrefab, point, rotation, roadsParent);
+        _roadLinkedList.AddNode(point, rotation, RoadType.Straight);
+        
+        _nextObject = _roadTrack;
+        _randomRoadType = RoadType.Straight;
+
+        
         for (int i = 0; i < pathLength; i++)
         {
-            var positionsWithoutObjects = ScanForAvailableSegment(nextObject.transform.position);
+            var roadRecentTrack = _roadLinkedList.GetTail();
+            
+            _randomRoadType = PickNewRoadType(_nextObject);
+            
+            var positionsWithoutObjects = ScanForAvailableSegment(_nextObject.transform, roadRecentTrack.RoadType);
+
+            
             int index = -1;
+            
             if (positionsWithoutObjects.Count > 0)
             {
-                var roadRecentTrack = _roadLinkedList.GetTail();
+
                 var bannedPositions = new List<(Vector3, TurnType)>();
+
                 foreach (var position in positionsWithoutObjects)
                 {
-                    //If last added track was a turn, it cannot make another turn so we ban these available positions even if they are free.
-                    if(roadRecentTrack.RoadType == RoadType.Straight) continue;
-                    if (position.Item2 == TurnType.Left || position.Item2 == TurnType.Right) bannedPositions.Add(position);
+                    switch (roadRecentTrack.RoadType)
+                    {
+                        
+                        case RoadType.TurnLeft:
+                            if (_randomRoadType == RoadType.Straight) rotationAngle = roadRecentTrack.Rotation.eulerAngles.y - 90f;
+                            if (_randomRoadType == RoadType.TurnLeft)
+                            {
+                                if(roadRecentTrack.Rotation.eulerAngles.y >= 180f)
+                                    rotationAngle = roadRecentTrack.Rotation.eulerAngles.y - 90f;
+                                else
+                                    rotationAngle = roadRecentTrack.Rotation.eulerAngles.y + 90f;
+                            }
+                            break;
+                        case RoadType.TurnRight:
+                            if (_randomRoadType == RoadType.Straight) rotationAngle = roadRecentTrack.Rotation.eulerAngles.y + 90f;
+                            if (_randomRoadType == RoadType.TurnRight)
+                            {
+                                if(roadRecentTrack.Rotation.eulerAngles.y >= 180f)
+                                    rotationAngle = roadRecentTrack.Rotation.eulerAngles.y - 90f;
+                                else
+                                    rotationAngle = roadRecentTrack.Rotation.eulerAngles.y + 90f;
+                            }
+                            break;
+                    }
                 }
 
-                for (int j = 0; j < bannedPositions.Count; j++) positionsWithoutObjects.Remove(bannedPositions[j]);
-                
-                index = random.NextInt(0, positionsWithoutObjects.Count);
+
+                foreach (var bannedPos in bannedPositions) positionsWithoutObjects.Remove(bannedPos);
+                if (positionsWithoutObjects.Count > 0) index = random.NextInt(0, positionsWithoutObjects.Count);
             }
 
-            var pos = index == -1 ? Vector3.zero : positionsWithoutObjects[index].Item1;
-            nextObject = Instantiate(roadTrackPrefab, pos, Quaternion.Euler(0, rotationAngle, 0), roadsParent);
-            _roadLinkedList.AddNode(nextObject.transform.position, RoadType.Straight);
+
+            Vector3 pos = Vector3.zero;
+            if (positionsWithoutObjects.Count > 0 && index != -1)
+                pos = positionsWithoutObjects[index].Item1;
+            else
+                break;
+            Quaternion newRotation = Quaternion.Euler(0, rotationAngle, 0);
+            _nextObject = Instantiate(GetRoadPrefabFromRoadType(_randomRoadType), pos, newRotation, roadsParent);
+            _roadLinkedList.AddNode(_nextObject.transform.position, newRotation, _randomRoadType);
         }
     }
 
-    private List<(Vector3, TurnType)> ScanForAvailableSegment(Vector3 startSegment)
+    private RoadType PickNewRoadType(GameObject lastGameObject)
+    {
+        List<RoadType> validRoadTypes = new List<RoadType>();
+        Vector3 forwardVector = Vector3.zero;
+        Vector3 leftVector = Vector3.zero;
+        Vector3 rightVector = Vector3.zero;
+        Vector3 position = lastGameObject.transform.position;
+
+        var forward = lastGameObject.transform.forward;
+        var right = lastGameObject.transform.right;
+
+        var tail = _roadLinkedList.GetTail();
+        switch (tail.RoadType)
+        {
+            case RoadType.Straight:
+                forwardVector = position + forward * (2 * segmentSize.x);
+                leftVector = position + forward * segmentSize.x - right * segmentSize.y;
+                rightVector = position + forward * segmentSize.x + right * segmentSize.y;
+                break;
+            case RoadType.TurnLeft:
+                forwardVector = position - right * (2 * segmentSize.x);
+                leftVector = position - right * segmentSize.x - forward * segmentSize.y;
+                rightVector = position - right * segmentSize.x + forward * segmentSize.y;
+                break;
+            case RoadType.TurnRight:
+                forwardVector = position + right * (2 * segmentSize.x);
+                leftVector = position + right * segmentSize.x + forward * segmentSize.y;
+                rightVector = position + right * segmentSize.x - forward * segmentSize.y;
+                break;
+        }
+        
+
+        
+        if(IsPositionValid(forwardVector))
+            validRoadTypes.Add(RoadType.Straight);
+        if(IsPositionValid(leftVector) && (tail.RoadType == RoadType.Straight || !validRoadTypes.Contains(RoadType.Straight)))
+            validRoadTypes.Add(RoadType.TurnLeft);
+        if(IsPositionValid(rightVector) && (tail.RoadType == RoadType.Straight || !validRoadTypes.Contains(RoadType.Straight)))
+            validRoadTypes.Add(RoadType.TurnRight);
+
+        if (validRoadTypes.Count <= 0)
+        {
+            Debug.LogWarning("Road death.");
+            return RoadType.Straight;
+        }
+        return validRoadTypes[random.NextInt(validRoadTypes.Count)];
+    }
+
+    private void OnDrawGizmos()
+    {
+        if (_roadLinkedList != null)
+        {
+            var currentNode = _roadLinkedList.GetHead();
+            while (currentNode != null)
+            {
+                currentNode = currentNode.Next;
+                if (currentNode == null) return;
+                Gizmos.color = Color.red;
+                Gizmos.DrawSphere(currentNode.Position, 0.2f);
+                Gizmos.color = Color.blue;
+            }
+        }
+    }
+
+  
+    private List<(Vector3, TurnType)> ScanForAvailableSegment(Transform segmentTransform, RoadType currentRoadType)
     {
         List<(Vector3, TurnType)> availablePositions = new List<(Vector3, TurnType)>();
-        var forwardSegment = new Vector3(startSegment.x + segmentSize.x, pathHeight, startSegment.z);
-        var backwardSegment = new Vector3(startSegment.x - segmentSize.x, pathHeight, startSegment.z);
-        var rightSegment = new Vector3(startSegment.x, pathHeight, startSegment.z - segmentSize.y);
-        var leftSegment = new Vector3(startSegment.x, pathHeight, startSegment.z + segmentSize.y);
-        if (forwardSegment.x < XmaxBounds)
-            if(!_roadLinkedList.ContainsPosition(forwardSegment)) availablePositions.Add((forwardSegment, TurnType.Up));
-        if (backwardSegment.x > XminBounds)
-            if(!_roadLinkedList.ContainsPosition(backwardSegment)) availablePositions.Add((backwardSegment, TurnType.Down));
-        if (rightSegment.z > ZminBounds)
-            if (!_roadLinkedList.ContainsPosition(rightSegment)) availablePositions.Add((rightSegment, TurnType.Right));
-        if (leftSegment.z < ZmaxBounds)
-            if (!_roadLinkedList.ContainsPosition(leftSegment)) availablePositions.Add((leftSegment, TurnType.Left));
+        Vector3 currentPos = segmentTransform.position;
+        Vector3 newSegmentPos;
+        TurnType turnType;
+        switch (currentRoadType)
+        {
+            case RoadType.Straight:
+                // Forward: +Z
+                newSegmentPos = currentPos + segmentTransform.forward * segmentSize.x;
+                newSegmentPos.y = pathHeight;
+                turnType = TurnType.PlusZ;
+                if (IsPositionValid(newSegmentPos))
+                {
+                    availablePositions.Add((newSegmentPos, turnType));
+                }
+                break;
+        
+            case RoadType.TurnLeft:
+                // Forward: -X
+                newSegmentPos = currentPos - segmentTransform.right * segmentSize.y;
+                newSegmentPos.y = pathHeight;
+                turnType = TurnType.MinusX;
+                if (IsPositionValid(newSegmentPos))
+                {
+                    availablePositions.Add((newSegmentPos, turnType));
+                }
+                break;
+        
+            case RoadType.TurnRight:
+                // Forward: -Z
+                newSegmentPos = currentPos + segmentTransform.right * segmentSize.y;
+                newSegmentPos.y = pathHeight;
+                turnType = TurnType.PlusX;
+                if (IsPositionValid(newSegmentPos))
+                {
+                    availablePositions.Add((newSegmentPos, turnType));
+                }
+                break;
+            default:
+                Debug.LogWarning($"Unhandled RoadType: {currentRoadType}");
+                break;
+        }
         return availablePositions;
     }
+
+    private const float Tolerance = 0.001f;
+    private bool IsPositionValid(Vector3 position)
+    {
+        return position.x >= XminBounds - Tolerance &&
+               position.x <= XmaxBounds + Tolerance &&
+               position.z >= ZminBounds - Tolerance &&
+               position.z <= ZmaxBounds + Tolerance &&
+               !_roadLinkedList.ContainsPosition(position);
+    }
     
-    
+
+    private GameObject GetRoadPrefabFromRoadType(RoadType roadType)
+    {
+        switch (roadType)
+        {
+            case RoadType.TurnLeft:
+                return turnLeftPrefab;
+            case RoadType.TurnRight:
+                return turnRightPrefab;
+            case RoadType.Straight:
+                return roadTrackPrefab;
+        }
+        return null;
+    }
 }
+
 
 public enum RoadType
 {
@@ -168,8 +341,7 @@ public enum RoadType
 
 public enum TurnType
 {
-    Up,
-    Down,
-    Left,
-    Right
+    PlusX,
+    MinusX,
+    PlusZ
 }

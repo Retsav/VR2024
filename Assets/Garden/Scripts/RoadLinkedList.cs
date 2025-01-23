@@ -37,9 +37,9 @@ public class RoadLinkedList
         return false;
     }
 
-    public void AddNode(Vector3 pos, RoadType roadType)
+    public void AddNode(Vector3 pos, Quaternion rotation, RoadType roadType)
     {
-        RoadNode newNode = new RoadNode(pos, roadType);
+        RoadNode newNode = new RoadNode(pos, rotation, roadType);
         if (_tail != null)
         {
             _tail.Next = newNode;
