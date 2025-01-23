@@ -155,23 +155,11 @@ public class TerrainGenerator : MonoBehaviour
                         
                         case RoadType.TurnLeft:
                             if (_randomRoadType == RoadType.Straight) rotationAngle = roadRecentTrack.Rotation.eulerAngles.y - 90f;
-                            if (_randomRoadType == RoadType.TurnLeft)
-                            {
-                                if(roadRecentTrack.Rotation.eulerAngles.y >= 180f)
-                                    rotationAngle = roadRecentTrack.Rotation.eulerAngles.y - 90f;
-                                else
-                                    rotationAngle = roadRecentTrack.Rotation.eulerAngles.y + 90f;
-                            }
+                            if (_randomRoadType == RoadType.TurnLeft) rotationAngle = roadRecentTrack.Rotation.eulerAngles.y - 90f; 
                             break;
                         case RoadType.TurnRight:
                             if (_randomRoadType == RoadType.Straight) rotationAngle = roadRecentTrack.Rotation.eulerAngles.y + 90f;
-                            if (_randomRoadType == RoadType.TurnRight)
-                            {
-                                if(roadRecentTrack.Rotation.eulerAngles.y >= 180f)
-                                    rotationAngle = roadRecentTrack.Rotation.eulerAngles.y - 90f;
-                                else
-                                    rotationAngle = roadRecentTrack.Rotation.eulerAngles.y + 90f;
-                            }
+                            if (_randomRoadType == RoadType.TurnRight) rotationAngle = roadRecentTrack.Rotation.eulerAngles.y + 90f;
                             break;
                     }
                 }

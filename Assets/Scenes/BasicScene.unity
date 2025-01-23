@@ -271,13 +271,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   seedValue: 1
   regenerateOnUpdate: 1
-  terrainSize: {x: 20, y: 20}
+  terrainSize: {x: 100, y: 100}
   segmentSize: {x: 1, y: 1}
   mesh: {fileID: -8944649345951860931, guid: 44e706b34727374489bb2dad475a7e3e, type: 3}
   grassmaterial: {fileID: 2100000, guid: a24f79b61585a9f40afa96a571af0669, type: 2}
   dirtmaterial: {fileID: 2100000, guid: cab217bf5acb1dd41a42d4cbf39ad198, type: 2}
   pathLength: 4
-  segmentStartingPointBorderMax: 3
+  segmentStartingPointBorderMax: 0
   maxTurnsInARow: 2
   roadTrackPrefab: {fileID: 778473948337293709, guid: 46b582187561f914a95e5fb9206fc000, type: 3}
   turnLeftPrefab: {fileID: 5473033084051685718, guid: 69c7e5ad4532b1141a7aa8dca10e2029, type: 3}
